@@ -1,0 +1,6 @@
+requests
+openai
+beautifulsoup4
+pyyaml
+playwright
+python-dotenv
