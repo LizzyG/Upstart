@@ -42,3 +42,4 @@ jobs:
       CIRCLE_COMMUNITY_ID: ${{ secrets.CIRCLE_COMMUNITY_ID }}
       CIRCLE_SPACE_ID: ${{ secrets.CIRCLE_SPACE_ID }}
       DRY_RUN: "true"
+      LOG_LEVEL: "debug"
