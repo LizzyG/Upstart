@@ -13,13 +13,11 @@ jobs:
     steps:
       # Step 1: Check out the repository
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # Step 2: Set up Python environment
       - name: Set up Python 3.x
         uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
 
       # Step 3: Install Python dependencies
       - name: Install dependencies
