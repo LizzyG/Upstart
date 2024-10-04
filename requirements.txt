@@ -1,6 +1,11 @@
 requests
 openai
-beautifulsoup4
-pyyaml
 playwright
 python-dotenv
+os
+logging
+json
+yaml
+re
+dotenv
+bs4
