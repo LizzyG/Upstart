@@ -2,5 +2,5 @@ requests
 openai
 playwright
 python-dotenv
-yaml
+PyYAML
 bs4
