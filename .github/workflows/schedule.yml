@@ -1,9 +1,8 @@
 name: Scrape Websites and Post Events
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # Runs daily at midnight (UTC)
-
+  # schedule:
+  #   - cron: '0 0 * * *'  # Runs daily at midnight (UTC)
   workflow_dispatch:
 
 jobs:
