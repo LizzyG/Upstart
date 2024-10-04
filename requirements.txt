@@ -2,10 +2,5 @@ requests
 openai
 playwright
 python-dotenv
-os
-logging
-json
 yaml
-re
-dotenv
 bs4

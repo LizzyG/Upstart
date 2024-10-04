@@ -18,6 +18,8 @@ jobs:
       # Step 2: Set up Python environment
       - name: Set up Python 3.x
         uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
 
       # Step 3: Install Python dependencies
       - name: Install dependencies
