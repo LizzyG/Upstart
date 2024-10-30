@@ -21,6 +21,58 @@ CIRCLE_COMMUNITY_ID = os.getenv("CIRCLE_COMMUNITY_ID")  # Community ID
 CIRCLE_SPACE_ID = os.getenv("CIRCLE_SPACE_ID")  # Space ID
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"  # Enable dry run mode
 
+# Define function structures outside to keep the function clean
+SINGLE_EVENT_FUNCTION_DEFINITION = {
+    "name": "extract_single_event_data",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "body": {"type": "string"},
+            "link": {"type": "string"},
+            "event_setting_attributes": {
+                "type": "object",
+                "properties": {
+                    "starts_at": {"type": "string", "format": "date-time"},
+                    "duration_in_seconds": {"type": "integer"},
+                    "location_type": {"type": "string"},    # Select from ["virtual", "in-person", "tbd"]
+                    "in_person_location": {"type": "string"}
+                }
+            }
+        }
+    }
+}
+
+MULTIPLE_EVENTS_FUNCTION_DEFINITION = {
+    "name": "extract_multiple_events_data",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "events": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "body": {"type": "string"},
+                        "link": {"type": "string"},
+                        "event_setting_attributes": {
+                            "type": "object",
+                            "properties": {
+                                "starts_at": {"type": "string", "format": "date-time"},
+                                "duration_in_seconds": {"type": "integer"},
+                                "location_type": {"type": "string"},    # Select from ["virtual", "in-person", "tbd"]
+                                "in_person_location": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 # Set up OpenAI API
 openai.api_key = OPENAI_API_KEY
 
@@ -33,37 +85,64 @@ def load_config():
         config = yaml.safe_load(file)
     return config['websites']
 
-def scrape_website(url):
-    """Scrape the website content using Playwright to handle JavaScript rendering and dynamic content."""
-    logging.info(f"Scraping {url}...")
-
+def scrape_and_extract(url, single_event=False):
+    """Unified function to scrape, clean, and extract event details from a URL.
+    If single_event is True, only extract a single event (used for detailed link pages)."""
+    logging.info(f"Processing URL: {url}")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
+        
+        try:
+            page.goto(url, timeout=10000)  # Set a timeout for navigation
+            html_content = page.content()
+            logging.info(f"Successfully scraped content from {url}")
+        except Exception as e:
+            logging.error(f"Failed to load {url}: {e}")
+            html_content = None  # Return None if scraping fails
+        finally:
+            browser.close()
 
-        # Visit the page
-        page.goto(url)
+    if not html_content:
+        return None  # Return None if scraping failed
 
-        # Optionally, handle infinite scrolling
-        logging.debug("Scrolling the page...")
-        scroll_height = 1000
-        while True:
-            current_scroll_position = page.evaluate("window.scrollY + window.innerHeight")
-            page.evaluate(f"window.scrollTo(0, {scroll_height});")
-            scroll_height += 1000
-            page.wait_for_timeout(1000)
+    cleaned_html = clean_html(html_content)
 
-            new_scroll_position = page.evaluate("window.scrollY + window.innerHeight")
-            if new_scroll_position == current_scroll_position:
-                break
+    # Select prompt and structure based on whether we're extracting multiple events or a single one
+    prompt = (
+        f"Extract details for a single event from the following HTML. Focus only on fields like body and location, ignoring unrelated content:\n{cleaned_html}"
+        if single_event else
+        f"Extract multiple event details from the following HTML. Be sure to capture fields like name, body, link, and location for each event:\n{cleaned_html}"
+    )
 
-        # Extract the HTML content after JavaScript execution
-        html_content = page.content()
+    function_definition = SINGLE_EVENT_FUNCTION_DEFINITION if single_event else MULTIPLE_EVENTS_FUNCTION_DEFINITION
 
-        browser.close()
+    # Call GPT with the appropriate prompt and structure
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an assistant that extracts structured event data from HTML."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        functions=[function_definition],
+        function_call={"name": function_definition["name"]}
+    )
 
-    logging.info(f"Successfully scraped {url}")
-    return html_content
+    function_call = response.choices[0].message.function_call
+    extracted_data = json.loads(function_call.arguments)
+    
+    # Handle different return structures for single and multiple events
+    if single_event:
+        return [extracted_data]  # Wrap single event in a list for consistency
+    else:
+        return extracted_data.get('events', [])
+
 
 def clean_html(html):
     """Clean the HTML by removing unnecessary tags, attributes, and focusing on the body content."""
@@ -260,7 +339,6 @@ class GitHubActionsHandler(logging.StreamHandler):
 
 
 def main():
-    """Main function to load config, scrape websites, extract events, and post to Circle API."""
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 
     # Configure logging
@@ -271,31 +349,42 @@ def main():
             GitHubActionsHandler(),  # Use GitHub Actions handler for custom log levels
         ]
     )
-
     logging.info("Starting main process...")
     websites = load_config()
-    
+
     for url in websites:
-        html_content = scrape_website(url)
-        
-        if html_content:
-            events_data = extract_events_with_relevant_fields(html_content)  # Get all relevant events as a list
-            
-            # Ensure there are events to process
-            if not events_data:
-                logging.warning(f"No events extracted from {url}")
-                continue
-            
-            # Iterate over each event and post it to Circle API
-            for event_data in events_data:
-                event_data["link"] = urljoin(url, event_data.get("link", ""))
-                complete_event = prepare_event_for_circle(event_data)  # Fill in missing fields
-                logging.debug(f"Complete Event:\n{json.dumps(complete_event, indent=4)}")
-                
-                try:
-                    post_event_to_circle(complete_event)
-                except Exception as e:
-                    logging.error(f"Failed to process event data: {e}")
+        # Scrape and extract initial event data from the main URL
+        main_events = scrape_and_extract(url)
+
+        for event_data in main_events:
+            # If there's a link, scrape additional content specifically for the single event
+            if event_data.get("link"):
+                event_data['link'] = urljoin(url, event_data.get('link', ''))
+                linked_event_data = scrape_and_extract(event_data["link"], single_event=True)
+    
+                if linked_event_data is None:
+                    event_data['link'] = url
+                if linked_event_data and isinstance(linked_event_data, list) and linked_event_data[0]:
+                    linked_event = linked_event_data[0]  # Only one event expected
+
+                    # Verify that at least one field in linked_event contains meaningful data
+                    if any(linked_event.get(field) for field in ["name", "body", "event_setting_attributes"]):
+                        # Merge fields, prioritizing main URL data if both are present
+                        event_data["body"] = event_data.get("body") or linked_event.get("body")
+                        event_data["event_setting_attributes"]["in_person_location"] = (
+                            event_data["event_setting_attributes"].get("in_person_location")
+                            or linked_event.get("event_setting_attributes", {}).get("in_person_location", "")
+                        )
+
+
+            # Prepare and post the merged event data
+            complete_event = prepare_event_for_circle(event_data)
+            logging.debug(f"Complete Event:\n{json.dumps(complete_event, indent=4)}")
+
+            try:
+                post_event_to_circle(complete_event)
+            except Exception as e:
+                logging.error(f"Failed to process event data: {e}")
 
 if __name__ == "__main__":
     main()
