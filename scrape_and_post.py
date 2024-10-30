@@ -33,7 +33,7 @@ SINGLE_EVENT_FUNCTION_DEFINITION = {
             "event_setting_attributes": {
                 "type": "object",
                 "properties": {
-                    "starts_at": {"type": "string", "format": "date-time"},
+                    "starts_at": {"type": "string", "format": "date-time"}, 
                     "duration_in_seconds": {"type": "integer"},
                     "location_type": {"type": "string"},    # Select from ["virtual", "in-person", "tbd"]
                     "in_person_location": {"type": "string"}
@@ -110,9 +110,9 @@ def scrape_and_extract(url, single_event=False):
 
     # Select prompt and structure based on whether we're extracting multiple events or a single one
     prompt = (
-        f"Extract details for a single event from the following HTML. Focus only on fields like body and location, ignoring unrelated content:\n{cleaned_html}"
+        f"Extract details for a single event from the following HTML. Focus only on fields like body and location, ignoring unrelated content. Specify dates in UTC. If a timezone is not explicitly provided assume it is Pacific Time and convert it to UTC accordingly:\n{cleaned_html}"
         if single_event else
-        f"Extract multiple event details from the following HTML. Be sure to capture fields like name, body, link, and location for each event:\n{cleaned_html}"
+        f"Extract multiple event details from the following HTML. Be sure to capture fields like name, body, link, and location for each event. Specify dates in UTC. If a timezone is not explicitly provided assume it is Pacific Time and convert it to UTC accordingly:\n{cleaned_html}"
     )
 
     function_definition = SINGLE_EVENT_FUNCTION_DEFINITION if single_event else MULTIPLE_EVENTS_FUNCTION_DEFINITION
