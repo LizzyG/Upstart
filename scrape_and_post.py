@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv, find_dotenv
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup, Comment
+from urllib.parse import urljoin
 
 # Load environment variables from .env file only if it exists
 if find_dotenv():
@@ -86,7 +87,10 @@ def clean_html(html):
 
     # Remove all attributes from the remaining tags
     for tag in body_content.find_all(True):  # True means all tags
-        tag.attrs = {}  # Clear all attributes
+        if tag.name == 'a' and 'href' in tag.attrs:
+            tag.attrs = {'href': tag.attrs['href']}  # Keep only href attribute
+        else:
+            tag.attrs = {}  # Clear all other attributes
 
     # Get the cleaned HTML content as a string
     cleaned_html = str(body_content)
@@ -96,7 +100,6 @@ def clean_html(html):
 
     # Optionally, format the result to be human-readable with minimal indentation
     cleaned_html = cleaned_html.strip()
-
     return cleaned_html
 
 
@@ -121,6 +124,7 @@ def extract_events_with_relevant_fields(html):
                         "properties": {
                             "name": {"type": "string"},  # Event Name
                             "body": {"type": "string"},  # Description
+                            "link": {"type": "string"},  # Link to event details
                             "event_setting_attributes": {
                                 "type": "object",
                                 "properties": {
@@ -148,7 +152,7 @@ def extract_events_with_relevant_fields(html):
                 },
                 {
                     "role": "user",
-                    "content": f"Extract event details from the following HTML.  Be sure to capture all relevant information to help attendees understand what the event is.  If there is a url for more info about the event be sure to include it in the body field.  Be sure to list each event discretely:\n{cleaned_html}"
+                    "content": f"Extract event details from the following HTML.  Be sure to capture all relevant information to help attendees understand what the event is.  If there is a url for more info about the event be sure to include it in the link field.  Be sure to list each event discretely:\n{cleaned_html}"
                 }
             ],
             functions=[function_definition],
@@ -176,10 +180,13 @@ def extract_events_with_relevant_fields(html):
 
 def prepare_event_for_circle(event_data):
     """Fill in any missing fields to create a complete Circle API event structure."""
+    body_text = event_data.get("body", "")
+    body_with_link = f"{body_text}\n\n{event_data['link']}" if body_text else event_data["link"]
+    
     complete_event = {
         "event": {
             "name": event_data.get("name", ""),
-            "body": event_data.get("body", ""),
+            "body": body_with_link,
             "slug": event_data.get("slug", ""),  # Optional slug
             "is_liking_disabled": False,
             "is_comments_disabled": False,
@@ -208,6 +215,7 @@ def prepare_event_for_circle(event_data):
     }
 
     return complete_event
+
 
 def post_event_to_circle(event_data):
     """Send the extracted events as structured JSON to Circle API."""
@@ -280,6 +288,7 @@ def main():
             
             # Iterate over each event and post it to Circle API
             for event_data in events_data:
+                event_data["link"] = urljoin(url, event_data.get("link", ""))
                 complete_event = prepare_event_for_circle(event_data)  # Fill in missing fields
                 logging.debug(f"Complete Event:\n{json.dumps(complete_event, indent=4)}")
                 
